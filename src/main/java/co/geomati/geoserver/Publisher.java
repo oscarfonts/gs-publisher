@@ -2,7 +2,7 @@ package co.geomati.geoserver;
 
 import it.geosolutions.geoserver.rest.GeoServerRESTManager;
 import it.geosolutions.geoserver.rest.encoder.GSLayerEncoder;
-import it.geosolutions.geoserver.rest.encoder.datastore.GSH2DatastoreEncoder;
+import it.geosolutions.geoserver.rest.encoder.datastore.GSAbstractDatastoreEncoder;
 import it.geosolutions.geoserver.rest.encoder.feature.GSFeatureTypeEncoder;
 
 import java.io.File;
@@ -12,12 +12,12 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Properties;
-
-import org.apache.commons.beanutils.BeanUtils;
 
 import joptsimple.OptionException;
 import joptsimple.OptionParser;
@@ -38,14 +38,22 @@ public class Publisher {
         OptionParser parser = new OptionParser() {
             {
                 accepts("help", "Print this help note").forHelp();
-                accepts("url", "GeoServer base URL").withOptionalArg()
+                accepts("url", "GeoServer base URL").withRequiredArg()
                         .defaultsTo("http://localhost:8080/geoserver");
-                accepts("user", "Username").withOptionalArg().defaultsTo(
-                        "admin");
-                accepts("password", "Password").withOptionalArg().defaultsTo(
-                        "geoserver");
-                accepts("workspace", "Workspace").withOptionalArg().defaultsTo(
-                        "test");
+                accepts("user", "GeoServer Administrator Username")
+                        .withRequiredArg().defaultsTo("admin");
+                accepts("password", "GeoServer Administrator Password")
+                        .withRequiredArg().defaultsTo("geoserver");
+                accepts("workspace", "Workspace to publish the data to")
+                        .withRequiredArg();
+                accepts("datastore", "Datastore name").withRequiredArg();
+                accepts("layers",
+                        "Comma separated list of layers to be published")
+                        .withRequiredArg();
+                accepts("db_params",
+                        "Properties file with database connection parameters")
+                        .withRequiredArg().describedAs("connection.properties")
+                        .ofType(File.class);
             }
         };
 
@@ -63,40 +71,42 @@ public class Publisher {
         String url = (String) options.valueOf("url");
         String user = (String) options.valueOf("user");
         String password = (String) options.valueOf("password");
+        String workspace = (String) options.valueOf("workspace");
+        String datastore = (String) options.valueOf("datastore");
+        File db_params = (File) options.valueOf("db_params");
+        String layers = (String) options.valueOf("layers");
 
         Publisher publisher = new Publisher(url, user, password);
 
-        // Some param values
-        String WORKSPACE = "test";
-        String STORENAME = "hachedos";
-        String LAYERNAME = "ACCESSOS";
-
-        Map<String, Object> DB = new HashMap<String, Object>();
-        DB.put("database", "H2/H2_API");
-        DB.put("host", "h2");
-        DB.put("port", 1521);
-
-        // Create a workspace
-        if (publisher.createWorkspace(WORKSPACE)) {
-            System.out.println("Workspace created");
+        // Create a workspace if not exists
+        if (publisher.createWorkspace(workspace)) {
+            System.out.println("Workspace '" + workspace + "' created");
         } else {
-            System.err.println("Workspace couldn't be created");
+            System.err.println("Error creating '" + workspace + "' workspace");
         }
 
-        // Create a datastore
-        if (publisher.createH2DataStore(WORKSPACE, STORENAME, DB)) {
-            System.out.println("Datastore created");
+        // Create a datastore if not exists
+        Map<String, Object> database = null;
+        if (db_params.isFile()) {
+            database = readProperties(db_params);
+        }
+        if (publisher.createDatastore(workspace, datastore, database)) {
+            System.out.println("Datastore '" + datastore + "' created");
         } else {
-            System.err.println("Datastore couldn't be created");
+            System.err.println("Error creating '" + datastore + "' datastore");
         }
 
-        // Publish a layer
-        if (publisher.publishLayer(WORKSPACE, STORENAME, LAYERNAME)) {
-            System.out.println("Layer published");
-        } else {
-            System.err.println("Layer couldn't be published");
+        // Publish the given layers, or all of the available layers
+        List<String> layerList = null;
+        if (layers != null) {
+            layerList = new ArrayList<String>(Arrays.asList(layers.split(",")));
         }
 
+        if (publisher.publishLayers(workspace, datastore, layerList)) {
+            System.out.println("All layers published successfully");
+        } else {
+            System.err.println("Some layers couldn't be published");
+        }
     }
 
     GeoServerRESTManager manager = null;
@@ -106,43 +116,70 @@ public class Publisher {
         manager = new GeoServerRESTManager(new URL(url), user, password);
     }
 
-    public boolean createWorkspace(String name) {
-        return manager.getPublisher().createWorkspace(name);
+    public boolean existsWorkspace(String workspace) {
+        return manager.getReader().getWorkspaceNames().contains(workspace);
     }
 
-    public boolean createH2DataStore(String workspace, String storename,
-            Map<String, Object> connectionParams)
-            throws IllegalAccessException, InvocationTargetException {
-
-        GSH2DatastoreEncoder store = new GSH2DatastoreEncoder(storename);
-        store.setNamespace(manager.getReader().getNamespace(workspace).getURI()
-                .toString());
-        for (Entry<String, Object> param : connectionParams.entrySet()) {
-            BeanUtils.setProperty(store, param.getKey(), param.getValue());
+    public boolean createWorkspace(String workspace) {
+        if (!existsWorkspace(workspace)) {
+            return manager.getPublisher().createWorkspace(workspace);
+        } else {
+            System.out.println("Skipping '" + workspace
+                    + "' workspace creation, it already exists");
+            return true;
         }
-        return manager.getStoreManager().create(workspace, store);
     }
 
-    public boolean publishLayer(String workspace, String storename,
-            String layername) {
-        GSFeatureTypeEncoder fte = new GSFeatureTypeEncoder();
-        fte.setName(layername);
-        fte.setTitle(layername);
-        // fte.setSRS(srs); // srs=null?"EPSG:4326":srs);
-        // fte.setProjectionPolicy(ProjectionPolicy.REPROJECT_TO_DECLARED);
-
-        GSLayerEncoder layerEncoder = new GSLayerEncoder();
-        return manager.getPublisher().publishDBLayer(workspace, storename, fte,
-                layerEncoder);
+    public boolean existsDatastore(String workspace, String datastore) {
+        return (manager.getReader().getDatastore(workspace, datastore) != null);
     }
 
-    /**
-     * Given a properties file, returns a Map with the property collection
-     * 
-     * @param file
-     *            The file to read
-     * @return A key-value pair Map
-     */
+    public boolean createDatastore(String workspace, String datastore,
+            Map<String, Object> database) throws IllegalAccessException,
+            InvocationTargetException {
+        if (!existsDatastore(workspace, datastore)) {
+            String namespace = manager.getReader().getNamespace(workspace)
+                    .getURI().toString();
+            GSAbstractDatastoreEncoder store = GSDatastoreEncoderFactory
+                    .create(namespace, datastore, database);
+            return manager.getStoreManager().create(workspace, store);
+        } else {
+            System.out.println("Skipping '" + datastore
+                    + "' datastore creation, it already exists");
+            return true;
+        }
+    }
+
+    public boolean publishLayers(String workspace, String datastore,
+            List<String> layers) {
+        boolean sinFallo = true;
+
+        for (String layer : layers) {
+            sinFallo = sinFallo && publishLayer(workspace, datastore, layer);
+        }
+        return sinFallo;
+    }
+
+    public boolean existsLayer(String workspace, String layer) {
+        return (manager.getReader().getLayer(workspace, layer) != null);
+    }
+
+    public boolean publishLayer(String workspace, String datastore, String layer) {
+        if (!existsLayer(workspace, layer)) {
+            GSFeatureTypeEncoder featuretype = new GSFeatureTypeEncoder();
+            featuretype.setName(layer);
+            featuretype.setTitle(layer);
+
+            return manager.getPublisher().publishDBLayer(workspace, datastore,
+                    featuretype, new GSLayerEncoder());
+        } else {
+            System.out.println("Skipping '" + layer
+                    + "' layer creation, it already exists");
+            return true;
+        }
+
+    }
+
     protected static Map<String, Object> readProperties(File file) {
         Map<String, Object> map = new HashMap<String, Object>();
         InputStream input = null;
