@@ -6,7 +6,7 @@ This utility automatically publishes some geodatabase tables as GeoServer layers
 
 GeoServer access parameters:
 
-* GeoServer base URL, defaults to ``http://localhost:8080/geoserver`,
+* GeoServer base URL, defaults to ``http://localhost:8080/geoserver``,
 * GeoServer admin username, defaults to ``admin``,
 * GeoServer admin password, defaults to ``geoserver``.
 
@@ -14,19 +14,19 @@ Mandatory parameters:
 
 * The workspace name,
 * The datastore name,
-* Some table names.
+* Some table (layer) names.
 
 And, if the datastore has to be created:
 
-* The database connection parameters
+* The database connection parameters, provided as a properties file.
 
-The workspace and datastore are created if they don't already exist.
+The workspace and datastore will be created if they don't exist.
 
 
 Supported databases are:
 
 * PostGIS
-* Oracle Spatial (add ojdbc7.jar driver from Oracle to classpath)
+* Oracle Spatial (add propietary Oracle ojdbc7.jar driver to your classpath)
 * H2
 
 Usage
