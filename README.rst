@@ -2,6 +2,9 @@
 GeoServer Geodatabase Publisher
 ===============================
 
+Publisher
+=========
+
 This utility automatically publishes some geodatabase tables as GeoServer layers. It needs:
 
 GeoServer access parameters:
@@ -30,12 +33,27 @@ Supported databases are:
 * H2
 
 Usage
-=====
+-----
 
 ::
 
-./run.sh --help
+./publish.sh --help
 
 ::
 
-./run.sh --workspace test --datastore tmb_api --db_params src/test/resources/h2.properties --layers LINIES_METRO,ESTACIONS,ACCESSOS
+./publish.sh --workspace test --datastore tmb_api --db_params src/test/resources/h2.properties --layers LINIES_METRO,ESTACIONS,ACCESSOS
+
+
+Updater
+=======
+
+Similar to the Publisher, but it updates an existing DataStore with a new set of connection parameters.
+
+This time, the "db_params" parameter is mandatory, and the "layers" parameter doesn't exist.
+
+Usage
+-----
+
+Suposing a "tmb_api" datastore exists under the "test" workspace, and the new database connection parameters are in a "new_h2_params" properties file::
+
+./update.sh --workspace test --datastore tmb_api --db_params new_h2_params.properties

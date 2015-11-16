@@ -73,7 +73,7 @@ public class Publisher {
             if (database == null) {
                 System.err
                         .println("Datastore "
-                                + workspace
+                                + datastore
                                 + " doesn't exist, please provide the database parameters to create it.");
                 return false;
             }
